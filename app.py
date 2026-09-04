@@ -4,25 +4,16 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
-
-from src.ingest_south_mumbai import build_south_mumbai_dataset
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env", override=False)
 GOOGLE_3D_TILES_API_KEY = os.getenv("GOOGLE_3D_TILES_API_KEY", "").strip()
 
-app = FastAPI(title="South Mumbai 3D Urban Architecture Twin")
 from src.cadastre_service import generate_building_cadastre
 
-required_files = [
-    "data/processed/buildings.geojson",
-    "data/processed/utilities.geojson"
-]
-if any(not os.path.exists(f) for f in required_files):
 app = FastAPI(title="South Mumbai 3D Urban Architecture Twin - Vertical ULPIN Cadastre")
 
 BUILDINGS_PATH = BASE_DIR / "data" / "processed" / "buildings.geojson"
@@ -32,7 +23,6 @@ if not BUILDINGS_PATH.exists() or not UTILITIES_PATH.exists():
     from src.ingest_south_mumbai import build_south_mumbai_dataset
     build_south_mumbai_dataset()
 
-# In-memory cache for buildings lookup
 CACHED_BUILDINGS_INDEX = {}
 
 def load_buildings_index():
@@ -49,13 +39,11 @@ load_buildings_index()
 
 @app.get("/api/buildings")
 def get_buildings():
-    with open("data/processed/buildings.geojson", "r", encoding="utf-8") as f:
     with open(BUILDINGS_PATH, "r", encoding="utf-8") as f:
         return JSONResponse(content=json.load(f))
 
 @app.get("/api/utilities")
 def get_utilities():
-    with open("data/processed/utilities.geojson", "r", encoding="utf-8") as f:
     with open(UTILITIES_PATH, "r", encoding="utf-8") as f:
         return JSONResponse(content=json.load(f))
 
@@ -63,7 +51,6 @@ def get_utilities():
 def get_building_cadastre_endpoint(spatial_id: str):
     feat = CACHED_BUILDINGS_INDEX.get(spatial_id)
     if not feat:
-        # Fallback search if index wasn't populated
         with open(BUILDINGS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
             for item in data.get("features", []):
@@ -81,41 +68,17 @@ def get_building_cadastre_endpoint(spatial_id: str):
 @app.get("/", response_class=HTMLResponse)
 def serve_dashboard():
     google_key_literal = json.dumps(GOOGLE_3D_TILES_API_KEY)
-    template = """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <title>South Mumbai 3D GIS Twin</title>
-        <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
-        <script src="https://cdn.jsdelivr.net/npm/cesium@1.124.0/Build/Cesium/Cesium.js"></script>
-        <link href="https://cdn.jsdelivr.net/npm/cesium@1.124.0/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
-        <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
-        <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-        <style>
-            body { margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; background: #000; color: #fff; overflow: hidden; }
-            #map, #fallback-map { position: absolute; top: 0; bottom: 0; width: 100%; }
-            #map { display: block; background: #020816; }
-            #fallback-map { display: none; }
-            .cesium-viewer { background: #030b18; }
-            .status-panel {
-                position: absolute; left: 50%; transform: translateX(-50%); bottom: 20px; z-index: 30;
-                background: rgba(2, 10, 23, 0.9); border: 1px solid rgba(148, 163, 184, 0.3);
-                border-radius: 999px; padding: 10px 18px; backdrop-filter: blur(12px);
-                box-shadow: 0 14px 28px rgba(0,0,0,0.35);
-                font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
-    html_content = r"""<!DOCTYPE html>
+    html_content = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>South Mumbai 3D Urban Architecture Twin • Vertical ULPIN Cadastre</title>
+    <title>South Mumbai 3D Urban Architecture Twin - Vertical ULPIN Cadastre</title>
     <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
     <!-- Fonts & Icons -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-    <!-- CesiumJS (Optional Photorealistic 3D) -->
+    <!-- CesiumJS -->
     <script src="https://cdn.jsdelivr.net/npm/cesium@1.124.0/Build/Cesium/Cesium.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/cesium@1.124.0/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
     <!-- MapLibre GL JS -->
@@ -158,13 +121,11 @@ def serve_dashboard():
         #fallback-map { display: none; }
         .cesium-viewer { background: #030b18; }
 
-        /* Custom Scrollbars */
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: rgba(5, 10, 20, 0.6); }
         ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.3); border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--accent-cyan); }
 
-        /* Glassmorphic Panel Styles */
         .glass-panel {
             background: var(--bg-card);
             backdrop-filter: blur(18px);
@@ -178,7 +139,6 @@ def serve_dashboard():
             font-family: 'JetBrains Mono', monospace;
         }
 
-        /* Tooltip */
         #viewport-tooltip {
             position: absolute; display: none; pointer-events: none; z-index: 50;
             background: rgba(8, 14, 28, 0.95); border: 1px solid var(--accent-cyan);
@@ -187,7 +147,6 @@ def serve_dashboard():
             transform: translate(-50%, -120%); transition: opacity 0.15s;
         }
 
-        /* 3D Digital Twin Overlay Workspace */
         #twin-workspace {
             position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
             background: radial-gradient(circle at 50% 30%, #0d172e 0%, #060913 100%);
@@ -208,7 +167,6 @@ def serve_dashboard():
             100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
 
-        /* React Root Overlay */
         #react-root {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none; z-index: 45;
@@ -232,32 +190,23 @@ def serve_dashboard():
         </div>
     </div>
 
-    <!-- React App Root -->
     <div id="react-root"></div>
 
-    <!-- Core App Logic & React Component Tree -->
     <script type="text/babel">
-        const { useState, useEffect, useRef, useCallback } = React;
+        const { useState, useEffect, useRef } = React;
 
         const GOOGLE_3D_TILES_API_KEY = __GOOGLE_3D_TILES_API_KEY__;
         const SOUTH_MUMBAI = { lon: 72.8270, lat: 18.9280 };
 
-        // Global State & Bridge
         window.appBridge = {
             openDigitalTwin: null,
             closeDigitalTwin: null,
-            focusBuilding: null,
             selectFlat: null,
             selectFloor: null,
-            setExplodeRatio: null,
-            setCameraPreset: null,
-            resetCamera: null,
             currentBuilding: null,
             currentCadastre: null
         };
 
-        // --- Realistic 3D Procedural Digital Twin Engine (Three.js) ---
-                // --- Realistic 3D Procedural Digital Twin Engine (Three.js) ---
         class ArchitecturalDigitalTwinRenderer {
             constructor(containerId) {
                 this.container = document.getElementById(containerId);
@@ -272,24 +221,19 @@ def serve_dashboard():
 
                 this.floorGroups = [];
                 this.flatMeshes = [];
-                this.instancedMeshes = [];
                 this.allInteractiveMeshes = [];
 
                 this.selectedFlatId = null;
                 this.selectedFloorIndex = null;
-                this.selectedWingId = null;
 
                 this.explodeRatio = 0.0;
                 this.targetExplodeRatio = 0.0;
 
                 this.raycaster = new THREE.Raycaster();
                 this.mouse = new THREE.Vector2();
-                this.hoveredMesh = null;
 
-                // Materials cache
                 this.materials = this.initMaterials();
 
-                // Camera animation target
                 this.camTween = {
                     active: false,
                     startPos: new THREE.Vector3(),
@@ -302,77 +246,59 @@ def serve_dashboard():
 
                 this.init();
             }
-            .status-panel[data-state="success"] { border-color: rgba(34, 197, 94, 0.8); color: #86efac; }
-            .status-panel[data-state="warning"] { border-color: rgba(250, 204, 21, 0.8); color: #facc15; }
-            .status-panel[data-state="error"] { border-color: rgba(248, 113, 113, 0.8); color: #fca5a5; }
-            .status-panel[data-state="info"] { border-color: rgba(81, 183, 255, 0.8); color: #7dd3fc; }
-            #sidebar {
-                position: absolute; top: 20px; left: 20px; z-index: 10;
-                background: rgba(10, 14, 23, 0.94); backdrop-filter: blur(14px);
-                border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 12px; padding: 18px;
-                width: 330px; box-shadow: 0 16px 40px rgba(0,0,0,0.85);
 
             initMaterials() {
                 return {
                     slabConcrete: new THREE.MeshStandardMaterial({
-                        color: 0x1f2937, roughness: 0.82, metalness: 0.18, name: "slabConcrete"
+                        color: 0x1f2937, roughness: 0.82, metalness: 0.18
                     }),
                     slabEdge: new THREE.MeshStandardMaterial({
-                        color: 0x374151, roughness: 0.7, metalness: 0.3, name: "slabEdge"
+                        color: 0x374151, roughness: 0.7, metalness: 0.3
                     }),
                     exteriorStone: new THREE.MeshStandardMaterial({
-                        color: 0x334155, roughness: 0.78, metalness: 0.15, name: "exteriorStone"
+                        color: 0x334155, roughness: 0.78, metalness: 0.15
                     }),
                     exteriorAccent: new THREE.MeshStandardMaterial({
-                        color: 0x1e293b, roughness: 0.6, metalness: 0.35, name: "exteriorAccent"
+                        color: 0x1e293b, roughness: 0.6, metalness: 0.35
                     }),
                     windowGlass: new THREE.MeshPhysicalMaterial({
                         color: 0x38bdf8, roughness: 0.08, transmission: 0.82, opacity: 0.75,
-                        transparent: true, reflectivity: 0.92, clearcoat: 1.0, clearcoatRoughness: 0.1,
-                        name: "windowGlass"
+                        transparent: true, reflectivity: 0.92, clearcoat: 1.0, clearcoatRoughness: 0.1
                     }),
                     windowGlassWarm: new THREE.MeshPhysicalMaterial({
                         color: 0x0284c7, roughness: 0.12, transmission: 0.78, opacity: 0.8,
-                        transparent: true, reflectivity: 0.88, clearcoat: 1.0,
-                        name: "windowGlassWarm"
+                        transparent: true, reflectivity: 0.88, clearcoat: 1.0
                     }),
                     aluminumFrame: new THREE.MeshStandardMaterial({
-                        color: 0x0f172a, roughness: 0.4, metalness: 0.85, name: "aluminumFrame"
+                        color: 0x0f172a, roughness: 0.4, metalness: 0.85
                     }),
                     balconyDeck: new THREE.MeshStandardMaterial({
-                        color: 0x475569, roughness: 0.85, metalness: 0.1, name: "balconyDeck"
+                        color: 0x475569, roughness: 0.85, metalness: 0.1
                     }),
                     balconyGlassRailing: new THREE.MeshPhysicalMaterial({
                         color: 0x00e5ff, roughness: 0.15, transmission: 0.9, opacity: 0.65,
-                        transparent: true, reflectivity: 0.85, name: "balconyGlassRailing"
+                        transparent: true, reflectivity: 0.85
                     }),
                     metalRailing: new THREE.MeshStandardMaterial({
-                        color: 0x94a3b8, roughness: 0.35, metalness: 0.9, name: "metalRailing"
+                        color: 0x94a3b8, roughness: 0.35, metalness: 0.9
                     }),
                     entranceDoor: new THREE.MeshPhysicalMaterial({
                         color: 0x0284c7, roughness: 0.1, transmission: 0.9, opacity: 0.85,
-                        transparent: true, name: "entranceDoor"
+                        transparent: true
                     }),
                     roofHVAC: new THREE.MeshStandardMaterial({
-                        color: 0x4b5563, roughness: 0.65, metalness: 0.7, name: "roofHVAC"
+                        color: 0x4b5563, roughness: 0.65, metalness: 0.7
                     }),
                     flatFloorSelected: new THREE.MeshStandardMaterial({
                         color: 0x00e5ff, emissive: 0x0088aa, emissiveIntensity: 0.75,
-                        roughness: 0.3, metalness: 0.5, name: "flatFloorSelected"
+                        roughness: 0.3, metalness: 0.5
                     }),
                     ghostedMaterial: new THREE.MeshPhysicalMaterial({
                         color: 0x0f172a, roughness: 0.2, transmission: 0.85, opacity: 0.18,
-                        transparent: true, reflectivity: 0.7, name: "ghostedMaterial"
+                        transparent: true, reflectivity: 0.7
                     })
                 };
             }
-            .title { font-size: 18px; font-weight: 800; color: #00e5ff; margin: 0 0 4px 0; }
-            .subtitle { font-size: 11px; color: #94a3b8; margin: 0 0 14px 0; text-transform: uppercase; font-weight: 600; }
-            .btn-group { display: flex; gap: 8px; margin-bottom: 12px; }
-            .btn {
-                flex: 1; background: #111827; color: #cbd5e1; border: 1px solid #374151;
-                padding: 9px 8px; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 11px;
-                transition: all 0.2s; text-align: center;
 
             init() {
                 const w = this.container.clientWidth || window.innerWidth;
@@ -400,20 +326,13 @@ def serve_dashboard():
                     this.controls.minDistance = 6;
                     this.controls.maxDistance = 600;
                 } else {
-                    this.controls = {
-                        target: new THREE.Vector3(0, 20, 0),
-                        update: () => {}
-                    };
+                    this.controls = { target: new THREE.Vector3(0, 20, 0), update: () => {} };
                     this.setupFallbackControls();
                 }
 
-                // Lighting Rig
                 this.setupLighting();
-
-                // Ground Grid & Ambient Plane
                 this.setupGround();
 
-                // Event Listeners
                 window.addEventListener('resize', () => this.onResize());
                 this.renderer.domElement.addEventListener('mousemove', (e) => this.onMouseMove(e));
                 this.renderer.domElement.addEventListener('click', (e) => this.onClick(e));
@@ -421,12 +340,6 @@ def serve_dashboard():
                 this.animate = this.animate.bind(this);
                 this.animate();
             }
-            .btn:hover, .btn.active { background: #00e5ff; color: #000; border-color: #00e5ff; box-shadow: 0 0 14px rgba(0,229,255,0.6); }
-            #inspector {
-                position: absolute; top: 20px; right: 20px; z-index: 10;
-                background: rgba(10, 14, 23, 0.95); backdrop-filter: blur(16px);
-                border: 1px solid #00e5ff; border-radius: 12px; padding: 20px;
-                width: 370px; display: none; box-shadow: 0 16px 40px rgba(0,0,0,0.9);
 
             setupLighting() {
                 const ambient = new THREE.AmbientLight(0xffffff, 0.85);
@@ -451,20 +364,10 @@ def serve_dashboard():
                 sun.shadow.bias = -0.0004;
                 this.scene.add(sun);
 
-                // Modern cyan/blue architectural rim backlight
                 const rimLight = new THREE.DirectionalLight(0x00e5ff, 1.25);
                 rimLight.position.set(-140, 90, -140);
                 this.scene.add(rimLight);
             }
-            .stat-row { display: flex; justify-content: space-between; margin: 8px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 5px; }
-            .stat-lbl { color: #94a3b8; }
-            .stat-val { color: #00e5ff; font-weight: 700; text-align: right; }
-            .badge { background: #00e5ff; color: #000; padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 800; }
-            .close-btn { background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 16px; }
-            #drilldown-modal {
-                position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-                background: #060a14; z-index: 100; display: none;
-                flex-direction: column; padding: 25px; box-sizing: border-box;
 
             setupGround() {
                 const gridHelper = new THREE.GridHelper(260, 52, 0x00e5ff, 0x1e293b);
@@ -483,53 +386,12 @@ def serve_dashboard():
                 ground.receiveShadow = true;
                 this.scene.add(ground);
             }
-            #drilldown-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 15px; }
-            #drilldown-body { display: flex; flex: 1; margin-top: 15px; gap: 25px; position: relative; min-height: 0; }
-            #three-canvas-container { flex: 2.2; background: radial-gradient(circle at 50% 40%, #0f1c33 0%, #050811 100%); border-radius: 12px; border: 1px solid #1e293b; position: relative; overflow: hidden; }
-            #floor-metrics-panel { flex: 1; background: rgba(15, 23, 42, 0.9); border-radius: 12px; border: 1px solid #1e293b; padding: 20px; overflow-y: auto; }
-            .floor-card { background: #111c30; padding: 12px 14px; border-radius: 8px; margin-bottom: 8px; border: 1px solid #1e293b; cursor: pointer; transition: all 0.2s; }
-            .floor-card:hover, .floor-card.active { border-color: #00e5ff; background: #162a4a; transform: translateX(5px); box-shadow: 0 0 12px rgba(0, 229, 255, 0.3); }
-            .control-hint { position: absolute; bottom: 15px; left: 15px; background: rgba(5, 10, 20, 0.85); padding: 8px 14px; border-radius: 6px; font-size: 11px; color: #94a3b8; border: 1px solid #1e293b; pointer-events: none; }
-        </style>
-    </head>
-    <body>
-        <div id="map"></div>
-        <div id="fallback-map"></div>
-        <div id="status-panel" class="status-panel" data-state="info" style="display: none;">
-            <span id="status-indicator"></span>
-        </div>
 
-        <div id="sidebar">
-            <div class="title">🏛️ South Mumbai 3D Twin</div>
-            <div class="subtitle">Cadastral Urban 3D GIS</div>
-            <div class="btn-group">
-                <button class="btn active" id="btn-3d" onclick="switchView('3d')">3D View</button>
-                <button class="btn" id="btn-2d" onclick="switchView('2d')">2D Plan</button>
-                <button class="btn" id="btn-st" onclick="switchView('street')">Street View</button>
-            </div>
-            <div style="font-size: 12px; color: #94a3b8; line-height: 1.6;">
-                <p style="margin: 4px 0;">🎮 <b>Keyboard Navigation:</b></p>
-                <p style="margin: 2px 0;">• <b>R:</b> Tilt Pitch Up (Top Plan)</p>
-                <p style="margin: 2px 0;">• <b>F:</b> Tilt Pitch Down (3D Isometric)</p>
-                <p style="margin: 2px 0;">• <b>Q / E:</b> 360° Rotate Left / Right</p>
-                <p style="margin: 2px 0;">• <b>W / A / S / D:</b> Pan Ground Map</p>
-                <p style="margin: 4px 0;">🏢 <b>Click:</b> Any structure to inspect & slice floors.</p>
-            </div>
-        </div>
             setupFallbackControls() {
                 let isDragging = false, isPanning = false;
                 let prevMouse = { x: 0, y: 0 };
                 let spherical = { radius: 80, theta: 0.85, phi: 1.15 };
 
-        <div id="inspector">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span class="badge" id="insp-type">STRUCTURE (3D)</span>
-                <button class="close-btn" onclick="document.getElementById('inspector').style.display='none'">✕</button>
-            </div>
-            <h3 id="insp-name" style="margin: 12px 0 10px 0; font-size: 16px; color: #fff;">-</h3>
-            <div id="insp-body"></div>
-            <div id="insp-action" style="margin-top: 15px;"></div>
-        </div>
                 const updateCam = () => {
                     spherical.phi = Math.max(0.08, Math.min(Math.PI - 0.08, spherical.phi));
                     this.camera.position.x = this.controls.target.x + spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
@@ -538,27 +400,6 @@ def serve_dashboard():
                     this.camera.lookAt(this.controls.target);
                 };
 
-        <div id="drilldown-modal">
-            <div id="drilldown-header">
-                <div>
-                    <h2 id="dd-title" style="margin: 0; color: #00e5ff; font-size: 20px;">Building Structural Breakdown</h2>
-                    <p id="dd-subtitle" style="margin: 4px 0 0 0; color: #94a3b8; font-size: 13px;"></p>
-                </div>
-                <div style="display:flex; gap:10px;">
-                    <button class="btn" style="flex: none; padding: 10px 18px;" onclick="toggleExplodedView()">💥 Explode / Stack Floors</button>
-                    <button class="btn" style="flex: none; padding: 10px 18px;" onclick="closeDrilldown()">← Back to City Map</button>
-                </div>
-            </div>
-            <div id="drilldown-body">
-                <div id="three-canvas-container">
-                    <div class="control-hint">🖱️ <b>Left-Click + Drag:</b> 3D Orbit & Tilt | <b>Wheel:</b> Zoom | <b>Right-Click + Drag:</b> Pan</div>
-                </div>
-                <div id="floor-metrics-panel">
-                    <h3 style="color: #00e5ff; margin-top: 0; font-size: 15px;">Floor-by-Floor Breakdown</h3>
-                    <div id="floor-list"></div>
-                </div>
-            </div>
-        </div>
                 this.renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
                 this.renderer.domElement.addEventListener('mousedown', (e) => {
                     if (e.button === 0) isDragging = true;
@@ -587,16 +428,6 @@ def serve_dashboard():
                 updateCam();
             }
 
-        <script>
-            window.CESIUM_BASE_URL = 'https://cdn.jsdelivr.net/npm/cesium@1.124.0/Build/Cesium/';
-            const GOOGLE_3D_TILES_API_KEY = __GOOGLE_3D_TILES_API_KEY__;
-            const ENABLE_PHOTOREALISTIC_LAYER = false;
-            const SOUTH_MUMBAI = { lon: 72.8270, lat: 18.9280 };
-            let fallbackMap = null;
-            let cesiumViewer = null;
-            let googleTilesetAttempted = false;
-            let googleTilesetReady = false;
-            let currentSelectedFeature = null;
             onResize() {
                 if (!this.container || !this.renderer || !this.camera) return;
                 const w = this.container.clientWidth;
@@ -606,9 +437,6 @@ def serve_dashboard():
                 this.renderer.setSize(w, h);
             }
 
-            function hidePhotorealisticStatus() {
-                const panel = document.getElementById('status-panel');
-                if (panel) panel.style.display = 'none';
             clearBuilding() {
                 if (this.buildingGroup) {
                     this.scene.remove(this.buildingGroup);
@@ -616,22 +444,13 @@ def serve_dashboard():
                 }
                 this.floorGroups = [];
                 this.flatMeshes = [];
-                this.instancedMeshes = [];
                 this.allInteractiveMeshes = [];
                 this.selectedFlatId = null;
                 this.selectedFloorIndex = null;
-                this.selectedWingId = null;
                 this.explodeRatio = 0.0;
                 this.targetExplodeRatio = 0.0;
             }
 
-            function setPhotorealisticStatus(message, state = 'info') {
-                const panel = document.getElementById('status-panel');
-                const indicator = document.getElementById('status-indicator');
-                if (!panel || !indicator) return;
-                if (!message || message === 'Street view active: photorealistic layer disabled temporarily') {
-                    hidePhotorealisticStatus();
-                    return;
             loadBuilding(buildingFeature, cadastre) {
                 this.clearBuilding();
                 this.buildingData = buildingFeature;
@@ -640,19 +459,14 @@ def serve_dashboard():
                 const p = buildingFeature.properties;
                 const geom = buildingFeature.geometry;
 
-                // Extract outer polygon ring
                 let ring = [];
                 if (geom.type === 'Polygon') {
                     ring = geom.coordinates[0];
                 } else if (geom.type === 'MultiPolygon') {
                     ring = geom.coordinates[0][0];
                 }
-                panel.style.display = 'block';
-                panel.dataset.state = state;
-                indicator.textContent = message;
                 if (!ring || ring.length < 3) return;
 
-                // Center coordinates in meters
                 let avgLon = 0, avgLat = 0;
                 ring.forEach(pt => { avgLon += pt[0]; avgLat += pt[1]; });
                 avgLon /= ring.length;
@@ -667,15 +481,12 @@ def serve_dashboard():
                 ));
 
                 const shape = new THREE.Shape(shapePoints);
-
-                // Compute bounding box
                 const box2 = new THREE.Box2().setFromPoints(shapePoints);
                 const size = new THREE.Vector2();
                 box2.getSize(size);
                 const center = new THREE.Vector2();
                 box2.getCenter(center);
 
-                // Shift points to centroid
                 const centeredPoints = shapePoints.map(pt => new THREE.Vector2(pt.x - center.x, pt.y - center.y));
                 const centeredShape = new THREE.Shape(centeredPoints);
 
@@ -686,23 +497,12 @@ def serve_dashboard():
                 const floorHeight = cadastre.floor_height_m || (p.height_m / floors);
                 const maxDim = Math.max(size.x, size.y, p.height_m || 50);
 
-                // --- 1. Procedural Building Floors & Flats Generation ---
                 this.buildArchitecturalFloors(centeredShape, centeredPoints, cadastre, floorHeight, size);
-
-                // --- 2. Ground Entrance & Lobby ---
                 this.buildGroundEntrance(size, floorHeight);
-
-                // --- 3. Rooftop Crown, Parapet & Utilities ---
                 this.buildRooftopCrown(centeredShape, floors * floorHeight, size);
-
-                // --- 4. Camera Placement ---
                 this.resetCameraToFraming(maxDim, p.height_m || 50);
             }
 
-            function hideFallbackRenderer() {
-                if (fallbackMap) {
-                    fallbackMap.remove();
-                    fallbackMap = null;
             buildArchitecturalFloors(centeredShape, points, cadastre, floorHeight, bboxSize) {
                 const floors = cadastre.floors;
 
@@ -715,7 +515,6 @@ def serve_dashboard():
                         floorData: floorObj
                     };
 
-                    // A. Floor Slab (Reinforced concrete with chamfered outward cantilever edge)
                     const slabThickness = 0.36;
                     const slabGeom = new THREE.ExtrudeGeometry(centeredShape, {
                         depth: slabThickness,
@@ -732,16 +531,13 @@ def serve_dashboard():
                     slabMesh.receiveShadow = true;
                     floorGroup.add(slabMesh);
 
-                    // Slab edge trim line
                     const slabEdgeGeom = new THREE.EdgesGeometry(slabGeom, 35);
                     const slabEdge = new THREE.LineSegments(slabEdgeGeom, new THREE.LineBasicMaterial({
                         color: 0x00e5ff, transparent: true, opacity: 0.45
                     }));
                     floorGroup.add(slabEdge);
 
-                    // B. Flats / Units Subdivision
                     const units = floorObj.units || [];
-                    const numUnits = units.length;
                     const hWall = floorHeight - slabThickness;
 
                     units.forEach((unit, uIdx) => {
@@ -755,29 +551,23 @@ def serve_dashboard():
                             wingId: unit.wing_id
                         };
 
-                        // Procedural quadrant geometry for each flat
                         const flatShape = this.createQuadrantShape(centeredShape, points, unit.quadrant, bboxSize);
 
-                        // 1. Flat Interior Plate / Ceiling
                         const flatPlateGeom = new THREE.ExtrudeGeometry(flatShape, { depth: 0.08, bevelEnabled: false });
                         flatPlateGeom.rotateX(-Math.PI / 2);
-                        const flatPlateMat = this.materials.exteriorAccent.clone();
-                        const flatPlateMesh = new THREE.Mesh(flatPlateGeom, flatPlateMat);
+                        const flatPlateMesh = new THREE.Mesh(flatPlateGeom, this.materials.exteriorAccent.clone());
                         flatPlateMesh.position.y = 0.02;
                         flatPlateMesh.userData = { isFlatClickable: true, unitId: unit.unit_id, unitData: unit };
                         flatGroup.add(flatPlateMesh);
 
-                        // 2. Exterior Façade Walls with Recessed Window Openings
                         const wallGeom = new THREE.ExtrudeGeometry(flatShape, { depth: hWall, bevelEnabled: false });
                         wallGeom.rotateX(-Math.PI / 2);
-                        const wallMat = this.materials.exteriorStone.clone();
-                        const wallMesh = new THREE.Mesh(wallGeom, wallMat);
+                        const wallMesh = new THREE.Mesh(wallGeom, this.materials.exteriorStone.clone());
                         wallMesh.castShadow = true;
                         wallMesh.receiveShadow = true;
                         wallMesh.userData = { isFlatClickable: true, unitId: unit.unit_id, unitData: unit };
                         flatGroup.add(wallMesh);
 
-                        // 3. Realistic High-Transmission PBR Glass Panels
                         const glassInsetShape = this.createInsetShape(flatShape, 0.35);
                         if (glassInsetShape) {
                             const glassGeom = new THREE.ExtrudeGeometry(glassInsetShape, { depth: hWall * 0.82, bevelEnabled: false });
@@ -788,7 +578,6 @@ def serve_dashboard():
                             glassMesh.userData = { isFlatClickable: true, unitId: unit.unit_id, unitData: unit };
                             flatGroup.add(glassMesh);
 
-                            // Aluminum mullion framing
                             const frameEdges = new THREE.EdgesGeometry(glassGeom);
                             const frameLine = new THREE.LineSegments(frameEdges, new THREE.LineBasicMaterial({
                                 color: 0x94a3b8, transparent: true, opacity: 0.65
@@ -797,14 +586,12 @@ def serve_dashboard():
                             flatGroup.add(frameLine);
                         }
 
-                        // 4. Projecting Cantilever Balcony & Glass Railings
                         const balconyMesh = this.createBalcony(unit.quadrant, bboxSize, hWall);
                         if (balconyMesh) {
                             balconyMesh.userData = { isFlatClickable: true, unitId: unit.unit_id, unitData: unit };
                             flatGroup.add(balconyMesh);
                         }
 
-                        // Flat Accent Outline (Glow when selected)
                         const flatEdgeGeom = new THREE.EdgesGeometry(wallGeom, 30);
                         const flatOutline = new THREE.LineSegments(flatEdgeGeom, new THREE.LineBasicMaterial({
                             color: 0x00e5ff, transparent: true, opacity: 0.0, linewidth: 2
@@ -832,28 +619,24 @@ def serve_dashboard():
                 const halfW = size.x * 0.48;
                 const halfH = size.y * 0.48;
 
-                // Check for perimeter points in this quadrant
                 const inQuad = (points || []).filter(pt => {
-                    if (quadIdx === 0) return pt.x >= -0.2 && pt.y >= -0.2; // NE
-                    if (quadIdx === 1) return pt.x <= 0.2 && pt.y >= -0.2;  // NW
-                    if (quadIdx === 2) return pt.x <= 0.2 && pt.y <= 0.2;   // SW
-                    return pt.x >= -0.2 && pt.y <= 0.2;                    // SE
+                    if (quadIdx === 0) return pt.x >= -0.2 && pt.y >= -0.2;
+                    if (quadIdx === 1) return pt.x <= 0.2 && pt.y >= -0.2;
+                    if (quadIdx === 2) return pt.x <= 0.2 && pt.y <= 0.2;
+                    return pt.x >= -0.2 && pt.y <= 0.2;
                 });
 
                 if (inQuad.length >= 3) {
-                    const coreOffset = 0.32; // Central corridor gap
+                    const coreOffset = 0.32;
                     const cx = (quadIdx === 0 || quadIdx === 3 ? 1 : -1) * coreOffset;
                     const cy = (quadIdx === 0 || quadIdx === 1 ? 1 : -1) * coreOffset;
                     quadShape.moveTo(cx, cy);
 
-                    // Sort points angularly around quadrant center
                     const sorted = [...inQuad].sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
                     sorted.forEach(pt => quadShape.lineTo(pt.x * 0.96, pt.y * 0.96));
                     quadShape.closePath();
                     return quadShape;
                 }
-                const fallbackEl = document.getElementById('fallback-map');
-                if (fallbackEl) fallbackEl.style.display = 'none';
 
                 let minX = -halfW, maxX = 0, minY = -halfH, maxY = 0;
                 if (quadIdx === 0) { minX = 0.3; maxX = halfW; minY = 0.3; maxY = halfH; }
@@ -869,10 +652,6 @@ def serve_dashboard():
                 return quadShape;
             }
 
-            function startFallbackRenderer() {
-                if (fallbackMap) return;
-                const fallbackEl = document.getElementById('fallback-map');
-                fallbackEl.style.display = 'block';
             createInsetShape(shape, inset) {
                 const s = new THREE.Shape();
                 const pts = shape.getPoints();
@@ -887,8 +666,6 @@ def serve_dashboard():
                 return s;
             }
 
-                fallbackMap = new maplibregl.Map({
-                    container: 'fallback-map',
             createBalcony(quadIdx, bboxSize, hWall) {
                 const bGroup = new THREE.Group();
                 const bWidth = Math.min(bboxSize.x * 0.35, 8.0);
@@ -900,20 +677,17 @@ def serve_dashboard():
                 slab.castShadow = true;
                 bGroup.add(slab);
 
-                // Railing Glass Panel
                 const railH = 1.05;
                 const railGeo = new THREE.BoxGeometry(bWidth, railH, 0.05);
                 const rail = new THREE.Mesh(railGeo, this.materials.balconyGlassRailing);
                 rail.position.set(0, railH / 2, bDepth / 2);
                 bGroup.add(rail);
 
-                // Top Handrail
                 const handrailGeo = new THREE.BoxGeometry(bWidth + 0.1, 0.06, 0.08);
                 const handrail = new THREE.Mesh(handrailGeo, this.materials.aluminumFrame);
                 handrail.position.set(0, railH, bDepth / 2);
                 bGroup.add(handrail);
 
-                // Position balcony on exterior façade depending on quadrant
                 const signX = (quadIdx === 0 || quadIdx === 3) ? 1 : -1;
                 const signZ = (quadIdx === 0 || quadIdx === 1) ? 1 : -1;
                 bGroup.position.set(signX * (bboxSize.x * 0.38), 0.15, signZ * (bboxSize.y * 0.38));
@@ -924,7 +698,6 @@ def serve_dashboard():
                 const entranceGroup = new THREE.Group();
                 entranceGroup.position.y = 0;
 
-                // Grand Canopy
                 const canopyW = Math.min(bboxSize.x * 0.45, 14);
                 const canopyD = 4.2;
                 const canopyThick = 0.3;
@@ -933,13 +706,11 @@ def serve_dashboard():
                 canopy.position.set(0, floorHeight * 0.95, bboxSize.y * 0.48 + canopyD / 2);
                 entranceGroup.add(canopy);
 
-                // Canopy Accent Neon Line
                 const edgeGeo = new THREE.EdgesGeometry(canopyGeo);
                 const line = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0x00e5ff, opacity: 0.8, transparent: true }));
                 line.position.copy(canopy.position);
                 entranceGroup.add(line);
 
-                // Structural Columns
                 [-canopyW * 0.42, canopyW * 0.42].forEach(posX => {
                     const colGeo = new THREE.CylinderGeometry(0.25, 0.25, floorHeight * 0.95, 16);
                     const col = new THREE.Mesh(colGeo, this.materials.aluminumFrame);
@@ -948,7 +719,6 @@ def serve_dashboard():
                     entranceGroup.add(col);
                 });
 
-                // Double Glass Doors
                 const doorGeo = new THREE.BoxGeometry(canopyW * 0.55, floorHeight * 0.75, 0.1);
                 const doors = new THREE.Mesh(doorGeo, this.materials.entranceDoor);
                 doors.position.set(0, (floorHeight * 0.75) / 2, bboxSize.y * 0.48);
@@ -961,14 +731,12 @@ def serve_dashboard():
                 const crownGroup = new THREE.Group();
                 crownGroup.position.y = totalHeight;
 
-                // 1. Parapet Safety Wall around roof
                 const parapetH = 1.15;
                 const parapetGeom = new THREE.ExtrudeGeometry(centeredShape, { depth: parapetH, bevelEnabled: false });
                 parapetGeom.rotateX(-Math.PI / 2);
                 const parapetMesh = new THREE.Mesh(parapetGeom, this.materials.slabEdge);
                 crownGroup.add(parapetMesh);
 
-                // 2. Elevator Overrun Penthouse / Machine Core
                 const coreW = Math.min(bboxSize.x * 0.32, 10);
                 const coreD = Math.min(bboxSize.y * 0.32, 10);
                 const coreH = 3.8;
@@ -978,29 +746,24 @@ def serve_dashboard():
                 core.castShadow = true;
                 crownGroup.add(core);
 
-                // 3. HVAC Chillers & Water Tanks
                 [-coreW * 0.7, coreW * 0.7].forEach((posX, idx) => {
-                    // HVAC Unit
                     const hvacGeo = new THREE.BoxGeometry(2.4, 1.6, 2.8);
                     const hvac = new THREE.Mesh(hvacGeo, this.materials.roofHVAC);
                     hvac.position.set(posX, 0.8, -coreD * 0.5);
                     crownGroup.add(hvac);
 
-                    // Water Tank
                     const tankGeo = new THREE.CylinderGeometry(1.1, 1.1, 2.2, 16);
                     const tank = new THREE.Mesh(tankGeo, this.materials.aluminumFrame);
                     tank.position.set(posX, 1.1, coreD * 0.5);
                     crownGroup.add(tank);
                 });
 
-                // 4. Architectural Telecommunication Spire / Mast
                 const spireH = Math.min(totalHeight * 0.22, 18);
                 const spireGeo = new THREE.CylinderGeometry(0.08, 0.35, spireH, 8);
                 const spire = new THREE.Mesh(spireGeo, this.materials.aluminumFrame);
                 spire.position.set(0, coreH + spireH / 2, 0);
                 crownGroup.add(spire);
 
-                // Beacon Light
                 const beaconGeo = new THREE.SphereGeometry(0.3, 12, 12);
                 const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
                 const beacon = new THREE.Mesh(beaconGeo, beaconMat);
@@ -1017,11 +780,10 @@ def serve_dashboard():
             }
 
             updateExplodeAnimation() {
-                // Smooth spring interpolation
                 const diff = this.targetExplodeRatio - this.explodeRatio;
                 if (Math.abs(diff) > 0.002) {
                     this.explodeRatio += diff * 0.12;
-                    const maxGap = 8.5; // vertical meters gap when fully exploded
+                    const maxGap = 8.5;
 
                     this.floorGroups.forEach((fg, idx) => {
                         const targetY = fg.userData.baseY + (idx * maxGap * this.explodeRatio);
@@ -1043,17 +805,14 @@ def serve_dashboard():
                     const isSameFloor = (this.selectedFloorIndex !== null && fg.userData.floorIndex === this.selectedFloorIndex);
 
                     if (unitId === null) {
-                        // Reset all to default PBR
                         fg.userData.wallMesh.material = this.materials.exteriorStone;
                         fg.userData.plateMesh.material = this.materials.exteriorAccent;
                         fg.userData.outline.material.opacity = 0.0;
                     } else if (isTarget) {
-                        // Selected Highlight: Vibrant Cyan Glow & Solid Opacity
                         fg.userData.wallMesh.material = this.materials.flatFloorSelected;
                         fg.userData.plateMesh.material = this.materials.flatFloorSelected;
                         fg.userData.outline.material.opacity = 1.0;
                     } else {
-                        // Context: Sleek Translucent Ghosted X-Ray
                         fg.userData.wallMesh.material = this.materials.ghostedMaterial;
                         fg.userData.plateMesh.material = this.materials.ghostedMaterial;
                         fg.userData.outline.material.opacity = isSameFloor ? 0.35 : 0.08;
@@ -1114,7 +873,6 @@ def serve_dashboard():
                 if (!this.camTween.active) return;
                 this.camTween.progress += 1.0 / this.camTween.duration;
                 const t = THREE.MathUtils.clamp(this.camTween.progress, 0.0, 1.0);
-                // Cubic easing
                 const ease = t * t * (3.0 - 2.0 * t);
 
                 this.camera.position.lerpVectors(this.camTween.startPos, this.camTween.targetPos, ease);
@@ -1205,9 +963,8 @@ def serve_dashboard():
             }
         }
 
-        // --- React 18 UI Application ---
         function App() {
-            const [viewMode, setViewMode] = useState('map'); // 'map' | 'twin'
+            const [viewMode, setViewMode] = useState('map');
             const [buildingsData, setBuildingsData] = useState(null);
             const [selectedBuilding, setSelectedBuilding] = useState(null);
             const [cadastre, setCadastre] = useState(null);
@@ -1221,7 +978,6 @@ def serve_dashboard():
 
             const twinRef = useRef(null);
 
-            // Fetch initial buildings GeoJSON
             useEffect(() => {
                 fetch('/api/buildings')
                     .then(r => r.json())
@@ -1232,14 +988,12 @@ def serve_dashboard():
                     .catch(err => console.error("Buildings fetch error:", err));
             }, []);
 
-            // Initialize Three.js Twin Engine once workspace mounts
             useEffect(() => {
                 if (!twinRef.current) {
                     twinRef.current = new ArchitecturalDigitalTwinRenderer('twin-canvas-container');
                 }
             }, []);
 
-            // Register global bridge methods
             useEffect(() => {
                 window.appBridge.openDigitalTwin = (bldFeat) => {
                     handleOpenTwin(bldFeat);
@@ -1329,7 +1083,6 @@ def serve_dashboard():
                 setSearchResults(matched);
             };
 
-            // --- MapLibre GL JS Initialization ---
             const initMapLibre = (bldGeo) => {
                 const map = new maplibregl.Map({
                     container: 'map',
@@ -1347,61 +1100,38 @@ def serve_dashboard():
                             id: 'satellite-base',
                             type: 'raster',
                             source: 'esri-satellite',
-                            paint: {
-                                'raster-brightness-max': 0.85,
-                                'raster-contrast': 0.15
-                            }
                             paint: { 'raster-brightness-max': 0.85, 'raster-contrast': 0.15 }
                         }]
                     },
-                    center: [72.8270, 18.9280],
-                    zoom: 16.0,
                     center: [SOUTH_MUMBAI.lon, SOUTH_MUMBAI.lat],
                     zoom: 16.2,
                     pitch: 60,
                     bearing: -18,
                     maxPitch: 85,
-                    dragRotate: true,
-                    pitchWithRotate: true,
                     antialias: true
                 });
 
-                fallbackMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
-                fallbackMap.on('load', async () => {
-                    const [buildings, utilities] = await Promise.all([
-                        fetch('/api/buildings').then(r => r.json()),
-                        fetch('/api/utilities').then(r => r.json())
-                    ]);
                 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }));
 
-                    fallbackMap.addSource('util-src', { type: 'geojson', data: utilities });
-                    fallbackMap.addLayer({
                 map.on('load', async () => {
                     const utilities = await fetch('/api/utilities').then(r => r.json());
 
-                    // Subterranean Utilities
                     map.addSource('util-src', { type: 'geojson', data: utilities });
                     map.addLayer({
                         id: 'metro-dashed',
                         type: 'line',
                         source: 'util-src',
                         filter: ['==', 'category', 'metro_underground'],
-                        paint: { 'line-color': '#00e5ff', 'line-width': 5.5, 'line-dasharray': [2, 1.5] }
                         paint: { 'line-color': '#00e5ff', 'line-width': 6, 'line-dasharray': [2, 1.5] }
                     });
-                    fallbackMap.addLayer({
                     map.addLayer({
                         id: 'pipeline-solid',
                         type: 'line',
                         source: 'util-src',
                         filter: ['!=', 'category', 'metro_underground'],
-                        paint: { 'line-color': '#ff3b30', 'line-width': 6, 'line-opacity': 0.95 }
                         paint: { 'line-color': '#ff3b30', 'line-width': 5.5, 'line-opacity': 0.9 }
                     });
 
-                    fallbackMap.addSource('buildings-src', { type: 'geojson', data: buildings });
-                    fallbackMap.addLayer({
-                    // 3D Buildings Layer
                     map.addSource('buildings-src', { type: 'geojson', data: bldGeo });
                     map.addLayer({
                         id: 'buildings-3d',
@@ -1410,7 +1140,6 @@ def serve_dashboard():
                         paint: {
                             'fill-extrusion-color': [
                                 'interpolate', ['linear'], ['get', 'height_m'],
-                                0, '#00b4d8',
                                 0, '#0284c7',
                                 25, '#00e5ff',
                                 55, '#38bdf8',
@@ -1419,276 +1148,25 @@ def serve_dashboard():
                             ],
                             'fill-extrusion-height': ['get', 'height_m'],
                             'fill-extrusion-base': 0,
-                            'fill-extrusion-opacity': 0.88
                             'fill-extrusion-opacity': 0.92
                         }
                     });
 
-                    const interactiveLayers = ['buildings-3d', 'metro-dashed', 'pipeline-solid'];
-                    fallbackMap.on('click', (e) => {
-                        const features = fallbackMap.queryRenderedFeatures(e.point, { layers: interactiveLayers });
-                        if (!features.length) return;
-                        const f = features[0];
-                        const p = f.properties;
-                        const insp = document.getElementById('inspector');
-                        const title = document.getElementById('insp-name');
-                        const badge = document.getElementById('insp-type');
-                        const body = document.getElementById('insp-body');
-                        const action = document.getElementById('insp-action');
-
-                        insp.style.display = 'block';
-                        title.innerText = p.name || 'South Mumbai Spatial Asset';
-
-                        if (f.layer.id === 'buildings-3d') {
-                            currentSelectedFeature = f;
-                            badge.innerText = 'STRUCTURE (3D)';
-                            badge.style.background = '#00e5ff';
-                            badge.style.color = '#000';
-                            body.innerHTML = `
-                                <div class="stat-row"><span class="stat-lbl">Spatial ID:</span><span class="stat-val">${p.spatial_id}</span></div>
-                                <div class="stat-row"><span class="stat-lbl">Address:</span><span class="stat-val">${p.street}</span></div>
-                                <div class="stat-row"><span class="stat-lbl">Total Floors:</span><span class="stat-val">${p.floors} Floors</span></div>
-                                <div class="stat-row"><span class="stat-lbl">Height:</span><span class="stat-val">${p.height_m} m</span></div>
-                                <div class="stat-row"><span class="stat-lbl">Dimensions (L × W):</span><span class="stat-val">${p.length_m}m × ${p.breadth_m}m</span></div>
-                                <div class="stat-row"><span class="stat-lbl">Footprint Area:</span><span class="stat-val">${p.area_sqm} m²</span></div>
-                                <div class="stat-row"><span class="stat-lbl">Floor Plate Area:</span><span class="stat-val">${p.floor_area_sqm} m²</span></div>
-                            `;
-                            action.innerHTML = `<button class="btn" style="width:100%;" onclick="openDrilldown()">🏢 Open 3D Floor Anatomy</button>`;
-                        } else {
-                            badge.innerText = 'SUBTERRANEAN';
-                            badge.style.background = '#ff3b30';
-                            badge.style.color = '#fff';
-                            body.innerHTML = `
-                                <div class="stat-row"><span class="stat-lbl">Spatial ID:</span><span class="stat-val">${p.spatial_id}</span></div>
-                                <div class="stat-row"><span class="stat-lbl">Structure:</span><span class="stat-val">${p.type}</span></div>
-                                <div class="stat-row"><span class="stat-lbl">Depth:</span><span class="stat-val">${p.depth_m} m</span></div>
-                                <div class="stat-row"><span class="stat-lbl">Diameter:</span><span class="stat-val">${p.diameter_m} m</span></div>
-                            `;
-                            action.innerHTML = '';
-                        }
                     map.on('click', 'buildings-3d', (e) => {
                         if (!e.features.length) return;
                         const f = e.features[0];
                         setSelectedBuilding(f);
                     });
 
-                    interactiveLayers.forEach((layerId) => {
-                        fallbackMap.on('mouseenter', layerId, () => fallbackMap.getCanvas().style.cursor = 'pointer');
-                        fallbackMap.on('mouseleave', layerId, () => fallbackMap.getCanvas().style.cursor = '');
-                    });
-
-                    switchView('street');
-                    hidePhotorealisticStatus();
                     map.on('mouseenter', 'buildings-3d', () => map.getCanvas().style.cursor = 'pointer');
                     map.on('mouseleave', 'buildings-3d', () => map.getCanvas().style.cursor = '');
                 });
-            }
 
-            async function initializeGooglePhotorealisticTiles() {
-                if (googleTilesetAttempted) return;
-                googleTilesetAttempted = true;
                 window.mapInstance = map;
             };
 
-                if (!GOOGLE_3D_TILES_API_KEY) {
-                    setPhotorealisticStatus('API key missing: configure GOOGLE_3D_TILES_API_KEY', 'warning');
-                    startFallbackRenderer();
-                    return;
-                }
-
-                setPhotorealisticStatus('Photorealistic 3D: Connecting...', 'info');
-                try {
-                    if (typeof Cesium === 'undefined') {
-                        throw new Error('CesiumJS failed to load.');
-                    }
-
-                    if (cesiumViewer) {
-                        cesiumViewer.destroy();
-                        cesiumViewer = null;
-                    }
-                    hideFallbackRenderer();
-
-                    cesiumViewer = new Cesium.Viewer('map', {
-                        animation: false,
-                        timeline: false,
-                        geocoder: false,
-                        homeButton: true,
-                        navigationHelpButton: false,
-                        sceneModePicker: true,
-                        baseLayerPicker: false,
-                        imageryProvider: false,
-                        terrain: Cesium.Terrain.fromWorldTerrain(),
-                        selectionIndicator: false,
-                        infoBox: false,
-                        fullscreenButton: true
-                    });
-
-                    cesiumViewer.camera.setView({
-                        destination: Cesium.Cartesian3.fromDegrees(SOUTH_MUMBAI.lon, SOUTH_MUMBAI.lat, 260),
-                        orientation: {
-                            heading: Cesium.Math.toRadians(-18),
-                            pitch: Cesium.Math.toRadians(-60),
-                            roll: 0.0
-                        }
-                    });
-
-                    const googleTileset = await Cesium.GoogleMaps.createGooglePhotorealisticTileset({
-                        apiKey: GOOGLE_3D_TILES_API_KEY,
-                        show: true
-                    });
-                    cesiumViewer.scene.primitives.add(googleTileset);
-                    googleTilesetReady = true;
-                    setPhotorealisticStatus('Photorealistic 3D: Connected', 'success');
-                    document.getElementById('map').style.display = 'block';
-                } catch (error) {
-                    console.error('Google Photorealistic 3D Tiles failed to initialize:', error);
-                    setPhotorealisticStatus('Photorealistic 3D unavailable: invalid API key or service failure', 'error');
-                    startFallbackRenderer();
-                }
-            }
-
-            function switchView(mode) {
-                const mapButtonGroup = document.querySelectorAll('.btn-group .btn');
-                mapButtonGroup.forEach((button) => button.classList.remove('active'));
-
-                if (mode === '3d') {
-                    document.getElementById('btn-3d').classList.add('active');
-                    if (cesiumViewer) {
-                        cesiumViewer.camera.flyTo({
-                            destination: Cesium.Cartesian3.fromDegrees(SOUTH_MUMBAI.lon, SOUTH_MUMBAI.lat, 260),
-                            orientation: { heading: Cesium.Math.toRadians(-18), pitch: Cesium.Math.toRadians(-60), roll: 0.0 },
-                            duration: 2.5
-                        });
-                    } else if (fallbackMap) {
-                        fallbackMap.easeTo({ center: [SOUTH_MUMBAI.lon, SOUTH_MUMBAI.lat], zoom: 16.2, pitch: 60, bearing: -18, duration: 1500 });
-                    }
-                } else if (mode === '2d') {
-                    document.getElementById('btn-2d').classList.add('active');
-                    if (cesiumViewer) {
-                        cesiumViewer.camera.flyTo({
-                            destination: Cesium.Cartesian3.fromDegrees(SOUTH_MUMBAI.lon, SOUTH_MUMBAI.lat, 1250),
-                            orientation: { heading: Cesium.Math.toRadians(0), pitch: Cesium.Math.toRadians(-90), roll: 0.0 },
-                            duration: 2.5
-                        });
-                    } else if (fallbackMap) {
-                        fallbackMap.easeTo({ center: [SOUTH_MUMBAI.lon, SOUTH_MUMBAI.lat], zoom: 13.8, pitch: 0, bearing: 0, duration: 1500 });
-                    }
-                } else if (mode === 'street') {
-                    document.getElementById('btn-st').classList.add('active');
-                    if (cesiumViewer) {
-                        cesiumViewer.camera.flyTo({
-                            destination: Cesium.Cartesian3.fromDegrees(72.8270, 18.9280, 120),
-                            orientation: { heading: Cesium.Math.toRadians(180), pitch: Cesium.Math.toRadians(-72), roll: 0.0 },
-                            duration: 2.5
-                        });
-                    } else if (fallbackMap) {
-                        fallbackMap.easeTo({ center: [72.8270, 18.9280], zoom: 17.4, pitch: 58, bearing: 18, duration: 1500 });
-                    }
-                }
-            }
-
-            window.addEventListener('load', () => {
-                if (ENABLE_PHOTOREALISTIC_LAYER) {
-                    initializeGooglePhotorealisticTiles();
-                } else {
-                    setPhotorealisticStatus('Street view active: photorealistic layer disabled temporarily', 'info');
-                    startFallbackRenderer();
-                    document.getElementById('btn-st').classList.add('active');
-                }
-            });
-
-            function handleFallbackKeyboardNavigation(e) {
-                if (!fallbackMap) return;
-                const key = e.key.toLowerCase();
-                const panAmount = 80;
-                const bearingStep = 12;
-                const pitchStep = 8;
-
-                if (key === 'r') {
-                    fallbackMap.easeTo({ pitch: Math.min(85, fallbackMap.getPitch() + pitchStep), duration: 160 });
-                } else if (key === 'f') {
-                    fallbackMap.easeTo({ pitch: Math.max(0, fallbackMap.getPitch() - pitchStep), duration: 160 });
-                } else if (key === 'q') {
-                    fallbackMap.easeTo({ bearing: fallbackMap.getBearing() - bearingStep, duration: 160 });
-                } else if (key === 'e') {
-                    fallbackMap.easeTo({ bearing: fallbackMap.getBearing() + bearingStep, duration: 160 });
-                } else if (key === 'w' || key === 'arrowup') {
-                    fallbackMap.panBy([0, -panAmount]);
-                } else if (key === 's' || key === 'arrowdown') {
-                    fallbackMap.panBy([0, panAmount]);
-                } else if (key === 'a' || key === 'arrowleft') {
-                    fallbackMap.panBy([-panAmount, 0]);
-                } else if (key === 'd' || key === 'arrowright') {
-                    fallbackMap.panBy([panAmount, 0]);
-                }
-            }
-
-            window.addEventListener('keydown', (e) => {
-                const isDrilldownOpen = (document.getElementById('drilldown-modal').style.display === 'flex');
-                if (isDrilldownOpen) {
-                    if (e.key === 'r' || e.key === 'R') { ddSpherical.phi -= 0.08; updateDrilldownCamera(); }
-                    if (e.key === 'f' || e.key === 'F') { ddSpherical.phi += 0.08; updateDrilldownCamera(); }
-                    if (e.key === 'q' || e.key === 'Q') { ddSpherical.theta -= 0.08; updateDrilldownCamera(); }
-                    if (e.key === 'e' || e.key === 'E') { ddSpherical.theta += 0.08; updateDrilldownCamera(); }
-                    return;
-                }
-
-                if (fallbackMap && !cesiumViewer) {
-                    handleFallbackKeyboardNavigation(e);
-                    return;
-                }
-
-                if (!cesiumViewer || !googleTilesetReady) return;
-                const camera = cesiumViewer.camera;
-                const moveAmount = 0.0005;
-                if (e.key === 'r' || e.key === 'R') { camera.moveUp(moveAmount); }
-                if (e.key === 'f' || e.key === 'F') { camera.moveDown(moveAmount); }
-                if (e.key === 'q' || e.key === 'Q') { camera.rotateRight(0.08); }
-                if (e.key === 'e' || e.key === 'E') { camera.rotateLeft(0.08); }
-                if (e.key === 'w' || e.key === 'ArrowUp') { camera.moveForward(60); }
-                if (e.key === 's' || e.key === 'ArrowDown') { camera.moveBackward(60); }
-                if (e.key === 'a' || e.key === 'ArrowLeft') { camera.moveLeft(60); }
-                if (e.key === 'd' || e.key === 'ArrowRight') { camera.moveRight(60); }
-            });
-
-            let ddRenderer, ddScene, ddCamera, ddAnimId;
-            let ddFloorMeshes = [];
-            let isExploded = false;
-            let ddIsDragging = false, ddIsPanning = false;
-            let ddPrevMouse = { x: 0, y: 0 };
-            let ddSpherical = { radius: 100, theta: 0.85, phi: 1.15 };
-            let ddTarget = new THREE.Vector3(0, 0, 0);
-
-            function updateDrilldownCamera() {
-                ddSpherical.phi = Math.max(0.05, Math.min(Math.PI - 0.05, ddSpherical.phi));
-                ddCamera.position.x = ddTarget.x + ddSpherical.radius * Math.sin(ddSpherical.phi) * Math.sin(ddSpherical.theta);
-                ddCamera.position.y = ddTarget.y + ddSpherical.radius * Math.cos(ddSpherical.phi);
-                ddCamera.position.z = ddTarget.z + ddSpherical.radius * Math.sin(ddSpherical.phi) * Math.cos(ddSpherical.theta);
-                ddCamera.lookAt(ddTarget);
-            }
-
-            function openDrilldown() {
-                if (!currentSelectedFeature) return;
-                const modal = document.getElementById('drilldown-modal');
-                modal.style.display = 'flex';
-                const p = currentSelectedFeature.properties;
-                document.getElementById('dd-title').innerText = p.name;
-                document.getElementById('dd-subtitle').innerText = `${p.spatial_id} • ${p.street}`;
-
-                const floorList = document.getElementById('floor-list');
-                floorList.innerHTML = '';
-                const floors = p.floors;
-                const floorHeight = (p.height_m / floors).toFixed(2);
-                
-                for (let i = floors; i >= 1; i--) {
-                    floorList.innerHTML += `
-                        <div class="floor-card" id="fcard-${i-1}" onmouseenter="highlightFloor(${i-1})" onmouseleave="unhighlightFloor(${i-1})" onclick="focusFloor(${i-1})">
-                            <div style="display:flex; justify-content:space-between; font-weight:bold; color:#00e5ff; font-size:13px;">
-                                <span>Level ${i} (${i === 1 ? 'Ground Floor' : (i === floors ? 'Terrace / Crown' : 'Floor ' + i)})</span>
-                                <span>H: ${floorHeight}m</span>
             return (
                 <div style={{ width: '100%', height: '100%', position: 'relative', pointerEvents: 'none' }}>
-                    {/* Top Bar Header */}
                     <div className="glass-panel" style={{
                         position: 'absolute', top: 16, left: 16, right: 16, height: 64,
                         padding: '0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -1701,8 +1179,6 @@ def serve_dashboard():
                             }}>
                                 🏛️
                             </div>
-                            <div style="font-size:11px; color:#94a3b8; margin-top:4px;">
-                                Footprint: ${p.length_m}m × ${p.breadth_m}m • Usable Area: ${p.floor_area_sqm} m²
                             <div>
                                 <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: '0.02em', color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
                                     SOUTH MUMBAI 3D DIGITAL TWIN
@@ -1719,14 +1195,7 @@ def serve_dashboard():
                                 </div>
                             </div>
                         </div>
-                    `;
-                }
 
-                setTimeout(() => {
-                    initExactPolygonThreeDrilldown(currentSelectedFeature);
-                }, 60);
-            }
-                        {/* Search Box */}
                         <div style={{ position: 'relative', width: 340 }}>
                             <input
                                 type="text"
@@ -1768,11 +1237,6 @@ def serve_dashboard():
                             )}
                         </div>
 
-            function closeDrilldown() {
-                if (ddAnimId) cancelAnimationFrame(ddAnimId);
-                document.getElementById('drilldown-modal').style.display = 'none';
-            }
-                        {/* View Mode Controls */}
                         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                             {viewMode === 'twin' && (
                                 <div style={{ display: 'flex', background: 'rgba(15,23,42,0.8)', borderRadius: 8, padding: 3, border: '1px solid var(--border-subtle)' }}>
@@ -1809,16 +1273,6 @@ def serve_dashboard():
                                 </div>
                             )}
 
-            function toggleExplodedView() {
-                isExploded = !isExploded;
-                const p = currentSelectedFeature.properties;
-                const floorH = p.height_m / p.floors;
-                
-                ddFloorMeshes.forEach((group, i) => {
-                    const targetY = isExploded ? i * (floorH * 2.2) : i * floorH;
-                    group.position.y = targetY;
-                });
-            }
                             {viewMode === 'twin' ? (
                                 <button
                                     onClick={handleCloseTwin}
@@ -1839,13 +1293,6 @@ def serve_dashboard():
                         </div>
                     </div>
 
-            function highlightFloor(idx) {
-                if (ddFloorMeshes[idx]) {
-                    ddFloorMeshes[idx].userData.glassMesh.material.emissive = new THREE.Color(0x00e5ff);
-                    ddFloorMeshes[idx].userData.glassMesh.material.emissiveIntensity = 0.6;
-                }
-            }
-                    {/* Mode 1: City GIS Map Floating Inspector Card (when a building is clicked in MapLibre) */}
                     {viewMode === 'map' && selectedBuilding && (
                         <div className="glass-panel" style={{
                             position: 'absolute', bottom: 30, right: 30, width: 380, padding: 22,
@@ -1872,12 +1319,6 @@ def serve_dashboard():
                                 {selectedBuilding.properties.street}
                             </div>
 
-            function unhighlightFloor(idx) {
-                if (ddFloorMeshes[idx]) {
-                    ddFloorMeshes[idx].userData.glassMesh.material.emissive = new THREE.Color(0x000000);
-                    ddFloorMeshes[idx].userData.glassMesh.material.emissiveIntensity = 0.0;
-                }
-            }
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
                                 <div style={{ background: 'rgba(15,23,42,0.6)', padding: 8, borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
                                     <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>LAND ULPIN</div>
@@ -1905,10 +1346,6 @@ def serve_dashboard():
                                 </div>
                             </div>
 
-            function focusFloor(idx) {
-                document.querySelectorAll('.floor-card').forEach(c => c.classList.remove('active'));
-                const card = document.getElementById(`fcard-${idx}`);
-                if (card) card.classList.add('active');
                             <button
                                 onClick={() => handleOpenTwin(selectedBuilding)}
                                 style={{
@@ -1923,23 +1360,13 @@ def serve_dashboard():
                         </div>
                     )}
 
-                const p = currentSelectedFeature.properties;
-                const floorH = p.height_m / p.floors;
-                const targetY = (idx * floorH) + (floorH / 2);
-                ddTarget.set(0, targetY, 0);
-                updateDrilldownCamera();
-                highlightFloor(idx);
-            }
-                    {/* Mode 2: Full 3D Digital Twin Navigation Sidebar & Vertical Cadastre Panel */}
                     {viewMode === 'twin' && cadastre && (
                         <React.Fragment>
-                            {/* Left Panel: Hierarchy Navigation (Building -> Wing -> Floor -> Flat) */}
                             <div className="glass-panel" style={{
                                 position: 'absolute', top: 96, left: 16, bottom: 24, width: 340,
                                 display: 'flex', flexDirection: 'column', padding: 18, zIndex: 60,
                                 pointerEvents: 'auto'
                             }}>
-                                {/* Breadcrumb Trail */}
                                 <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                     <span style={{ color: 'var(--accent-cyan)' }}>South Mumbai</span> ›
                                     <span>{cadastre.cadastral_division.split(' ')[0]}</span> ›
@@ -1947,10 +1374,6 @@ def serve_dashboard():
                                     {selectedFlat && <span style={{ color: 'var(--accent-amber)' }}>› Flat {selectedFlat.unit_number}</span>}
                                 </div>
 
-            function initExactPolygonThreeDrilldown(feature) {
-                const container = document.getElementById('three-canvas-container');
-                container.innerHTML = '<div class="control-hint">🖱️ <b>Left-Click + Drag:</b> 3D Orbit & Tilt | <b>Wheel:</b> Zoom | <b>Right-Click + Drag:</b> Pan</div>';
-                                {/* Explode / Stack Floors Slider */}
                                 <div style={{
                                     background: 'rgba(15,23,42,0.7)', borderRadius: 10, padding: 14,
                                     border: '1px solid var(--border-subtle)', marginBottom: 16
@@ -1990,9 +1413,6 @@ def serve_dashboard():
                                     </div>
                                 </div>
 
-                const p = feature.properties;
-                const geom = feature.geometry;
-                                {/* Wings Selector */}
                                 <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
                                     <button
                                         onClick={() => setSelectedWing('all')}
@@ -2021,9 +1441,6 @@ def serve_dashboard():
                                     ))}
                                 </div>
 
-                const w = container.clientWidth || (window.innerWidth * 0.6);
-                const h = container.clientHeight || (window.innerHeight * 0.8);
-                                {/* Floor & Flat Hierarchy Explorer */}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                                     <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
                                         Vertical Slices ({cadastre.floors_count} Levels)
@@ -2038,8 +1455,6 @@ def serve_dashboard():
                                     )}
                                 </div>
 
-                ddScene = new THREE.Scene();
-                ddScene.background = new THREE.Color(0x070b14);
                                 <div style={{ flex: 1, overflowY: 'auto', paddingRight: 4 }}>
                                     {cadastre.floors.slice().reverse().map(fl => {
                                         const isFlActive = (selectedFloor === fl.floor_index);
@@ -2064,8 +1479,6 @@ def serve_dashboard():
                                                     </span>
                                                 </div>
 
-                ddCamera = new THREE.PerspectiveCamera(45, w / h, 1, 5000);
-                                                {/* Expanded Flats List on Active Floor */}
                                                 {isFlActive && (
                                                     <div style={{ marginTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8 }}>
                                                         <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 6 }}>
@@ -2099,13 +1512,6 @@ def serve_dashboard():
                                 </div>
                             </div>
 
-                let ring = [];
-                if (geom.type === 'Polygon') {
-                    ring = geom.coordinates[0];
-                } else if (geom.type === 'MultiPolygon') {
-                    ring = geom.coordinates[0][0];
-                }
-                            {/* Right Panel: Vertical Property Mapping & 3D ULPIN Inspector Card */}
                             <div className="glass-panel" style={{
                                 position: 'absolute', top: 96, right: 16, bottom: 24, width: 380,
                                 display: 'flex', flexDirection: 'column', padding: 22, zIndex: 60,
@@ -2124,10 +1530,6 @@ def serve_dashboard():
                                     </span>
                                 </div>
 
-                let avgLon = 0, avgLat = 0;
-                ring.forEach(pt => { avgLon += pt[0]; avgLat += pt[1]; });
-                avgLon /= ring.length;
-                avgLat /= ring.length;
                                 {selectedFlat ? (
                                     <React.Fragment>
                                         <h3 style={{ margin: '0 0 2px 0', fontSize: 18, color: '#fff' }}>
@@ -2137,9 +1539,6 @@ def serve_dashboard():
                                             {selectedFlat.unit_type} • Level {selectedFlat.floor_number}
                                         </div>
 
-                const SCALE_M = 111320;
-                const cosLat = Math.cos(avgLat * Math.PI / 180);
-                                        {/* 3D Vertical ULPIN Box */}
                                         <div style={{
                                             background: 'rgba(0, 229, 255, 0.08)', border: '1px solid var(--accent-cyan)',
                                             borderRadius: 8, padding: 12, marginBottom: 16
@@ -2153,14 +1552,6 @@ def serve_dashboard():
                                             </div>
                                         </div>
 
-                const shape = new THREE.Shape();
-                ring.forEach((pt, i) => {
-                    const lx = (pt[0] - avgLon) * SCALE_M * cosLat;
-                    const lz = -(pt[1] - avgLat) * SCALE_M;
-                    if (i === 0) shape.moveTo(lx, lz);
-                    else shape.lineTo(lx, lz);
-                });
-                                        {/* Unit Property Metrics */}
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
                                             <div style={{ background: 'rgba(15,23,42,0.6)', padding: 10, borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
                                                 <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>RERA CARPET AREA</div>
@@ -2192,13 +1583,6 @@ def serve_dashboard():
                                             </div>
                                         </div>
 
-                const maxDim = Math.max(p.length_m || 50, p.breadth_m || 50, p.height_m || 50);
-                ddSpherical.radius = maxDim * 2.2;
-                ddSpherical.theta = 0.85;
-                ddSpherical.phi = 1.15;
-                ddTarget.set(0, p.height_m / 2, 0);
-                updateDrilldownCamera();
-                                        {/* Cadastral Ownership & Legal Records */}
                                         <div style={{ background: 'rgba(15,23,42,0.7)', borderRadius: 8, padding: 12, border: '1px solid var(--border-subtle)', marginBottom: 16 }}>
                                             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-cyan)', marginBottom: 8, textTransform: 'uppercase' }}>
                                                 Cadastral Ownership & Title
@@ -2225,11 +1609,6 @@ def serve_dashboard():
                                             </div>
                                         </div>
 
-                ddRenderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-                ddRenderer.setSize(w, h);
-                ddRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-                ddRenderer.shadowMap.enabled = true;
-                container.appendChild(ddRenderer.domElement);
                                         <button
                                             onClick={() => {
                                                 navigator.clipboard.writeText(selectedFlat.unit_ulpin);
@@ -2254,10 +1633,6 @@ def serve_dashboard():
                                             {cadastre.street} • {cadastre.cadastral_division}
                                         </div>
 
-                ddScene.add(new THREE.AmbientLight(0xffffff, 0.9));
-                const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-                sun.position.set(maxDim * 2, maxDim * 3, maxDim * 2);
-                ddScene.add(sun);
                                         <div style={{
                                             background: 'rgba(0, 229, 255, 0.08)', border: '1px solid var(--accent-cyan)',
                                             borderRadius: 8, padding: 12, marginBottom: 16
@@ -2271,9 +1646,6 @@ def serve_dashboard():
                                             </div>
                                         </div>
 
-                const blueRim = new THREE.DirectionalLight(0x00e5ff, 1.2);
-                blueRim.position.set(-maxDim * 2, maxDim, -maxDim * 2);
-                ddScene.add(blueRim);
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
                                             <div style={{ background: 'rgba(15,23,42,0.6)', padding: 10, borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
                                                 <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>TOTAL HEIGHT</div>
@@ -2295,9 +1667,6 @@ def serve_dashboard():
                                             </div>
                                         </div>
 
-                const grid = new THREE.GridHelper(maxDim * 3, 30, 0x00e5ff, 0x1e293b);
-                grid.position.y = 0.05;
-                ddScene.add(grid);
                                         <div style={{
                                             background: 'rgba(15,23,42,0.7)', borderRadius: 8, padding: 14,
                                             border: '1px solid var(--border-subtle)', textAlign: 'center', marginTop: 'auto'
@@ -2318,88 +1687,6 @@ def serve_dashboard():
             );
         }
 
-                ddFloorMeshes = [];
-                isExploded = false;
-                const floors = p.floors;
-                const floorH = p.height_m / floors;
-
-                for (let i = 0; i < floors; i++) {
-                    const floorGroup = new THREE.Group();
-                    floorGroup.position.y = i * floorH;
-                    const slabGeom = new THREE.ExtrudeGeometry(shape, { depth: 0.35, bevelEnabled: false });
-                    slabGeom.rotateX(-Math.PI / 2);
-                    const slabMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7, metalness: 0.2 });
-                    const slabMesh = new THREE.Mesh(slabGeom, slabMat);
-                    slabMesh.position.y = 0.0;
-                    floorGroup.add(slabMesh);
-
-                    const glassGeom = new THREE.ExtrudeGeometry(shape, { depth: floorH - 0.4, bevelEnabled: false });
-                    glassGeom.rotateX(-Math.PI / 2);
-                    const glassMat = new THREE.MeshStandardMaterial({
-                        color: i % 2 === 0 ? 0x00c8ff : 0x00e5ff,
-                        transparent: true,
-                        opacity: 0.75,
-                        roughness: 0.15,
-                        metalness: 0.8
-                    });
-                    const glassMesh = new THREE.Mesh(glassGeom, glassMat);
-                    glassMesh.position.y = 0.35;
-                    floorGroup.add(glassMesh);
-
-                    const edgeGeom = new THREE.EdgesGeometry(glassGeom);
-                    const edgeLine = new THREE.LineSegments(edgeGeom, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 }));
-                    edgeLine.position.y = 0.35;
-                    floorGroup.add(edgeLine);
-
-                    floorGroup.userData = { glassMesh, floorIndex: i };
-                    ddScene.add(floorGroup);
-                    ddFloorMeshes.push(floorGroup);
-                }
-
-                ddRenderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
-                ddRenderer.domElement.addEventListener('mousedown', (e) => {
-                    if (e.button === 0) ddIsDragging = true;
-                    if (e.button === 2) ddIsPanning = true;
-                    ddPrevMouse = { x: e.clientX, y: e.clientY };
-                });
-
-                window.addEventListener('mouseup', () => {
-                    ddIsDragging = false;
-                    ddIsPanning = false;
-                });
-
-                ddRenderer.domElement.addEventListener('mousemove', (e) => {
-                    const dx = e.clientX - ddPrevMouse.x;
-                    const dy = e.clientY - ddPrevMouse.y;
-
-                    if (ddIsDragging) {
-                        ddSpherical.theta -= dx * 0.008;
-                        ddSpherical.phi -= dy * 0.008;
-                        updateDrilldownCamera();
-                    } else if (ddIsPanning) {
-                        ddTarget.x -= dx * 0.12;
-                        ddTarget.y += dy * 0.12;
-                        updateDrilldownCamera();
-                    }
-                    ddPrevMouse = { x: e.clientX, y: e.clientY };
-                });
-
-                ddRenderer.domElement.addEventListener('wheel', (e) => {
-                    ddSpherical.radius = Math.max(10, Math.min(1000, ddSpherical.radius + e.deltaY * 0.3));
-                    updateDrilldownCamera();
-                });
-
-                function renderAnatomy() {
-                    ddAnimId = requestAnimationFrame(renderAnatomy);
-                    ddRenderer.render(ddScene, ddCamera);
-                }
-                renderAnatomy();
-            }
-        </script>
-    </body>
-    </html>
-    """
-    html_content = template.replace("__GOOGLE_3D_TILES_API_KEY__", google_key_literal)
         ReactDOM.render(<App />, document.getElementById('react-root'));
     </script>
 </body>
